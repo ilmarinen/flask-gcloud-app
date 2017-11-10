@@ -50,12 +50,29 @@ def submitted_form():
 
 @app.route('/messages', methods=['GET'])
 def messages():
-    ancestor_key = ndb.Key("MessageList", "form")
+    message_type = request.args.get("type")
+    message_type = message_type if message_type is not None else "sms"
+    ancestor_key = ndb.Key("MessageList", message_type)
     messages = Message.query(ancestor=ancestor_key).order(-Message.date).fetch(20)
 
     return render_template(
         "messages.html",
         messages=messages)
+
+
+@app.route('/sms_message', methods=['POST'])
+def receive_sms(**kwargs):
+    number = request.form.get("From")
+    sms_body = request.form.get("Body")
+
+    message = Message(
+        parent=ndb.Key("MessageList", "sms"),
+        sender_number=number,
+        content=sms_body)
+    message.put()
+
+    xml_response = "<Response><Message>Thanks</Message></Response>"
+    return Response(xml_response, mimetype="text/xml")
 
 
 @app.errorhandler(500)
