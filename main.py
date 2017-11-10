@@ -12,47 +12,53 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# [START app]
 import logging
 
-# [START imports]
-from flask import Flask, render_template, request
-# [END imports]
+from flask import Flask, render_template, request, Response
+from google.appengine.ext import ndb
 
-# [START create_app]
+
 app = Flask(__name__)
-# [END create_app]
 
 
-# [START form]
+class Message(ndb.Model):
+    sender_number = ndb.StringProperty()
+    content = ndb.StringProperty()
+    date = ndb.DateTimeProperty(auto_now_add=True)
+
+
 @app.route('/form')
 def form():
     return render_template('form.html')
-# [END form]
 
 
-# [START submitted]
 @app.route('/submitted', methods=['POST'])
 def submitted_form():
-    name = request.form['name']
-    email = request.form['email']
-    site = request.form['site_url']
-    comments = request.form['comments']
+    number = request.form['number']
+    message = request.form['message']
+    sms_message = Message(
+        parent=ndb.Key("MessageList", "form"),
+        sender_number=number,
+        content=message)
+    sms_message.put()
 
-    # [END submitted]
-    # [START render_template]
     return render_template(
         'submitted_form.html',
-        name=name,
-        email=email,
-        site=site,
-        comments=comments)
-    # [END render_template]
+        number=number,
+        message=message)
+
+
+@app.route('/messages', methods=['GET'])
+def messages():
+    ancestor_key = ndb.Key("MessageList", "form")
+    messages = Message.query(ancestor=ancestor_key).order(-Message.date).fetch(20)
+
+    return render_template(
+        "messages.html",
+        messages=messages)
 
 
 @app.errorhandler(500)
 def server_error(e):
-    # Log the error and stacktrace.
     logging.exception('An error occurred during a request.')
     return 'An internal error occurred.', 500
-# [END app]

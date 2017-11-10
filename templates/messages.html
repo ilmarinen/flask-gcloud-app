@@ -6,14 +6,17 @@
  <body>
    <div id="container">
      <div class="pagetitle">
-       <h1>Form submitted</h1>
+       <h1>Messages</h1>
      </div>
      <div id="main">
-       <p>Thanks for your submission, {{number}}!</p>
-       <p>Here's a review of the information that you sent:</p>
+       <p>Messages</p>
        <p>
-          <strong>Number</strong>: {{number}} <br>
-          <strong>Message</strong>: {{message}}
+          <ul>
+            {% for message in messages %}
+              <p>{{ message.sender_number }}
+              <p>{{ message.content }}
+            {% endfor %}
+          </ul>
        </p>
      </div>
    </div>
