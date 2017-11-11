@@ -1,17 +1,3 @@
-# Copyright 2016 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import os
 import logging
 
@@ -22,17 +8,27 @@ from google.appengine.api import app_identity
 from google.appengine.ext import ndb
 import cloudstorage as gcs
 
-
+## //\\ App Initialization //\\ ##
 app = Flask(__name__)
 
-
+## //\\//\\ Google Services //\\//\\ ##
 bucket_name = os.environ.get('BUCKET_NAME', app_identity.get_default_gcs_bucket_name())
 bucket_name = os.environ.get('BUCKET_NAME', app_identity.get_default_gcs_bucket_name())
-access_token_file = open("access-token", "r")
-access_token = access_token_file.read().strip()
-access_token_file.close()
+try:
+  with open("access-token", "r") as access_token_file:
+    access_token = access_token_file.read().strip()
+except IOError as ioe:
+  logging.warn("** There is not access_token; you be unable to use certain features. **")
 
 
+## //\\//\\//\\ HTML5 Playground //\\//\\///\\ ##
+@app.route('/html5', methods=['GET'])
+def html5():
+    return render_template("html5.html")
+
+
+## TODO: dpf.2017.11.11 - Move functional pieces out of main.py into own files then modules.
+## //\\//\\//\\ Messaging and Calling //\\///\\//\\ ##
 class Message(ndb.Model):
     sender_number = ndb.StringProperty()
     content = ndb.StringProperty()
@@ -97,87 +93,6 @@ def receive_sms(**kwargs):
     return Response(xml_response, mimetype="text/xml")
 
 
-@app.route('/calls', methods=['POST'])
-def receive_call(**kwargs):
-    call_sid = request.form.get("CallSid")
-    caller_number = request.form.get("From")
-
-    call_record = CallRecord(
-        parent=ndb.Key("CallList", "twilio"),
-        call_sid=call_sid,
-        caller_number=caller_number)
-    call_record.put()
-
-    xml_response = """
-        <Response>
-            <Say>
-                Please leave a message at the beep.
-                Press the star key when finished.
-            </Say>
-            <Record
-                action="call_thank_you"
-                recordingStatusCallback="receive_recording"
-                method="GET"
-                maxLength="20"
-                finishOnKey="*"
-            />
-            <Say>I did not receive a recording.</Say>
-        </Response>
-    """
-    return Response(xml_response, mimetype="text/xml")
-
-
-@app.route('/calls', methods=['GET'])
-def list_calls(**kwargs):
-    ancestor_key = ndb.Key("CallList", "twilio")
-    call_records = CallRecord.query(ancestor=ancestor_key).order(-CallRecord.date).fetch(20)
-    return render_template("incoming_calls.html", call_records=call_records)
-
-
-@app.route('/receive_recording', methods=['POST'])
-def receive_recording(**kwargs):
-    call_sid = request.form.get("CallSid")
-    recording_url = request.form.get("RecordingUrl")
-    recording_status = request.form.get("RecordingStatus")
-    google_storage_uri = save_to_google_storage(recording_url)
-    transcript = recognize_speech(google_storage_uri)
-    logging.info("Transcript: {}".format(transcript))
-
-    logging.info("Call Status: {}, {}, {}".format(call_sid, recording_url, recording_status))
-
-    ancestor_key = ndb.Key("CallList", "twilio")
-    call_records = CallRecord.query(ancestor=ancestor_key).filter(CallRecord.call_sid == call_sid).fetch(1)
-    call_record = call_records.pop()
-
-    call_record.recording_url = recording_url
-    call_record.google_storage_uri = google_storage_uri
-    call_record.recording_status = recording_status
-    call_record.transcript = transcript
-    call_record.put()
-
-    xml_response = "<Response><Say>Thank you.</Say></Response>"
-    return Response(xml_response, mimetype="text/xml")
-
-
-@app.route('/call_thank_you', methods=['GET'])
-def call_thank_you(**kwargs):
-
-    xml_response = """
-        <Response>
-            <Say>
-                Thank you.
-            </Say>
-        </Response>
-    """
-    return Response(xml_response, mimetype="text/xml")
-
-
-@app.errorhandler(500)
-def server_error(e):
-    logging.exception('An error occurred during a request.')
-    return 'An internal error occurred.', 500
-
-
 def save_to_google_storage(http_file_uri):
     local_filename = http_file_uri.split("/").pop()
     local_filepath = "/{}/{}".format(bucket_name, local_filename)
@@ -216,3 +131,10 @@ def recognize_speech(recording_gs_uri):
         return alternatives[0]["transcript"]
 
     return None
+
+
+## //\\//\\ Errors //\\//\\ ##
+@app.errorhandler(500)
+def server_error(e):
+    logging.exception('An error occurred during a request.')
+    return 'An internal error occurred.', 500
