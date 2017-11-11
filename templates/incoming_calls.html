@@ -1,0 +1,25 @@
+<html>
+ <head>
+   <title>Incoming Calls</title>
+   <link rel="stylesheet" type="text/css" href="/static/style.css">
+ </head>
+ <body>
+   <div id="container">
+     <div class="pagetitle">
+       <h1>Incoming Calls</h1>
+     </div>
+     <div id="main">
+       <p>
+          <ul>
+            {% for call_record in call_records %}
+              <p>{{ call_record.caller_number }}
+              <p>{{ call_record.recording_url }}
+              <p> {{ call_record.google_storage_uri }}
+              <p>{{ call_record.recording_status }}
+            {% endfor %}
+          </ul>
+       </p>
+     </div>
+   </div>
+ </body>
+</html>
