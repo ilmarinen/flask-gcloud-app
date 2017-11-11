@@ -18,7 +18,7 @@ try:
   with open("access-token", "r") as access_token_file:
     access_token = access_token_file.read().strip()
 except IOError as ioe:
-  logging.warn("** There is not access_token; you be unable to use certain features. **")
+  logging.warn("** There is no access_token; you will not be able to use certain features. **")
 
 
 ## //\\//\\//\\ HTML5 Playground //\\//\\///\\ ##
