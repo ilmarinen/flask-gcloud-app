@@ -15,6 +15,7 @@
 import os
 import logging
 
+import json
 import requests
 from flask import Flask, render_template, request, Response
 from google.appengine.api import app_identity
@@ -26,6 +27,10 @@ app = Flask(__name__)
 
 
 bucket_name = os.environ.get('BUCKET_NAME', app_identity.get_default_gcs_bucket_name())
+bucket_name = os.environ.get('BUCKET_NAME', app_identity.get_default_gcs_bucket_name())
+access_token_file = open("access-token", "r")
+access_token = access_token_file.read().strip()
+access_token_file.close()
 
 
 class Message(ndb.Model):
@@ -111,7 +116,7 @@ def receive_call(**kwargs):
             </Say>
             <Record
                 action="call_thank_you"
-                recordingStatusCallback="call_status"
+                recordingStatusCallback="receive_recording"
                 method="GET"
                 maxLength="20"
                 finishOnKey="*"
@@ -129,13 +134,14 @@ def list_calls(**kwargs):
     return render_template("incoming_calls.html", call_records=call_records)
 
 
-@app.route('/call_status', methods=['POST'])
+@app.route('/receive_recording', methods=['POST'])
 def receive_recording(**kwargs):
     call_sid = request.form.get("CallSid")
     recording_url = request.form.get("RecordingUrl")
     recording_status = request.form.get("RecordingStatus")
     google_storage_uri = save_to_google_storage(recording_url)
-    # transcript = recognize_speech(google_storage_uri)
+    transcript = recognize_speech(google_storage_uri)
+    logging.info("Transcript: {}".format(transcript))
 
     logging.info("Call Status: {}, {}, {}".format(call_sid, recording_url, recording_status))
 
@@ -146,14 +152,14 @@ def receive_recording(**kwargs):
     call_record.recording_url = recording_url
     call_record.google_storage_uri = google_storage_uri
     call_record.recording_status = recording_status
-    # call_record.transcript = transcript
+    call_record.transcript = transcript
     call_record.put()
 
-    xml_response = "<Response></Response>"
+    xml_response = "<Response><Say>Thank you.</Say></Response>"
     return Response(xml_response, mimetype="text/xml")
 
 
-@app.route('/call_thank_you', methods=['POST'])
+@app.route('/call_thank_you', methods=['GET'])
 def call_thank_you(**kwargs):
 
     xml_response = """
@@ -164,11 +170,6 @@ def call_thank_you(**kwargs):
         </Response>
     """
     return Response(xml_response, mimetype="text/xml")
-
-
-@app.route('/test', methods=['GET'])
-def test():
-    return save_to_google_storage("https://api.twilio.com/2010-04-01/Accounts/AC4912c84b21c8937090fd5f8cb094614b/Recordings/RE689296f4bf315c064341faa07aa93279")
 
 
 @app.errorhandler(500)
@@ -190,16 +191,28 @@ def save_to_google_storage(http_file_uri):
     return "gs://{}/{}".format(bucket_name, local_filename)
 
 
-# def recognize_speech(recording_gs_uri):
-#     request_payload = {
-#         "config": {
-#             "encoding": "LINEAR16",
-#             "sampleRateHertz": 8000,
-#             "languageCode": "en-US",
-#             "enableWordTimeOffsets": False
-#         },
+def recognize_speech(recording_gs_uri):
+    request_headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {}".format(access_token)
+    }
+    request_payload = {
+        "config": {
+            "encoding": "LINEAR16",
+            "sampleRateHertz": 8000,
+            "languageCode": "en-US",
+            "enableWordTimeOffsets": False
+        },
 
-#         "audio": {
-#             "uri": recording_gs_uri
-#         }
-#     }
+        "audio": {
+            "uri": recording_gs_uri
+        }
+    }
+    response = requests.post("https://speech.googleapis.com/v1/speech:recognize", data=json.dumps(request_payload), headers=request_headers)
+    response_json = response.json()
+    result = response_json.get("results").pop()
+    alternatives = sorted(result.get("alternatives"), key=lambda alternative: alternative["confidence"])
+    if len(alternatives) > 0:
+        return alternatives[0]["transcript"]
+
+    return None

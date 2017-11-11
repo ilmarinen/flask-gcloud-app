@@ -14,8 +14,9 @@
             {% for call_record in call_records %}
               <p>{{ call_record.caller_number }}
               <p>{{ call_record.recording_url }}
-              <p> {{ call_record.google_storage_uri }}
+              <p>{{ call_record.google_storage_uri }}
               <p>{{ call_record.recording_status }}
+              <p>{{ call_record.transcript }}
             {% endfor %}
           </ul>
        </p>
