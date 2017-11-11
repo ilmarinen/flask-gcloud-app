@@ -1,5 +1,6 @@
 import os
 import logging
+import ConfigParser
 
 import json
 import requests
@@ -10,6 +11,12 @@ import cloudstorage as gcs
 
 ## //\\ App Initialization //\\ ##
 app = Flask(__name__)
+config = ConfigParser.RawConfigParser()
+try:
+  config.read('app.cfg')
+except Exception as e:
+  logging.warn("** There was an exception while parsing the app.cfg config file **")
+  logging.warn(e)
 
 ## //\\//\\ Google Services //\\//\\ ##
 bucket_name = os.environ.get('BUCKET_NAME', app_identity.get_default_gcs_bucket_name())
@@ -19,6 +26,14 @@ try:
     access_token = access_token_file.read().strip()
 except IOError as ioe:
   logging.warn("** There is no access_token; you will not be able to use certain features. **")
+
+## //\\//\\ Twilio Services //\\//\\ ##
+twilio_number = config.get('Twilio', 'number')
+
+## //\\//\\//\\ Index //\\//\\///\\ ##
+@app.route('/', methods=['GET'])
+def index():
+  return render_template("index.html", twilio_number=twilio_number)
 
 
 ## //\\//\\//\\ HTML5 Playground //\\//\\///\\ ##

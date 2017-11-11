@@ -1,3 +1,4 @@
 lib
 *.pyc
 access-token
+app.cfg
