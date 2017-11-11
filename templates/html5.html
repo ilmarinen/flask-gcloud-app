@@ -1,0 +1,45 @@
+<html>
+  <head>
+    <title>HTML5 Playground</title>
+    <link rel="stylesheet" type="text/css" href="/static/style.css">
+    <link rel="stylesheet" type="text/css" href="/static/style.css">
+    <script src="static/capture.js"
+    </script>
+    <script src="static/geo.js">
+    </script>
+  </head>
+  <body>
+    <div id="geolocation">
+      <h1>Where are you?</h1>
+      <div id="mapIt">
+        <p><button onclick="geoFindMe()">Show my location</button></p>
+        <div id="out"></div>
+      </div>
+    </div>
+    <div class="contentarea">
+      <h1>
+        What do you see?
+      </h1>
+      <div class="camera">
+        <video id="video">Video stream not available.</video>
+        <button id="startbutton">Take photo</button> 
+      </div>
+      <canvas id="canvas">
+      </canvas>
+      <div class="output">
+        <img id="photo" alt="The screen capture will appear in this box."> 
+      </div>
+    </div>
+    <div id="main">
+      <p>Messages</p>
+      <p>
+      <ul>
+        {% for message in messages %}
+        <p>{{ message.sender_number }}
+        <p>{{ message.content }}
+        {% endfor %}
+      </ul>
+      </p>
+    </div>
+  </body>
+</html>
