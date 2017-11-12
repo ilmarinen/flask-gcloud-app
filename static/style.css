@@ -53,3 +53,8 @@
 #welcome {
   text-align: center;
 }
+
+#welcome.media {
+  display: block;
+  margin: 0 auto;
+}
