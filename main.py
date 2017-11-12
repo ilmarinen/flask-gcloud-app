@@ -30,13 +30,13 @@ except IOError as ioe:
 ## //\\//\\ Twilio Services //\\//\\ ##
 twilio_number = config.get('Twilio', 'number')
 nist_formatted_twilio_number = twilio_number = config.get('Twilio', 'nist_number')
-twilio_number = "+1-123-456-7890"
+twilio_number = "+11234567890"
 nist_formatted_twilio_number = "+1 (123) 456-7890"
 
 ## //\\//\\//\\ Index //\\//\\///\\ ##
 @app.route('/', methods=['GET'])
 def index():
-  return render_template("index.html", twilio_number=twilio_number, nist_formatted_number=nist_formatted_twilio_number)
+  return render_template("index.html", twilio_number=twilio_number, nist_formatted_twilio_number=nist_formatted_twilio_number)
 
 
 ## //\\//\\//\\ HTML5 Playground //\\//\\///\\ ##
