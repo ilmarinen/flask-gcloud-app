@@ -1,13 +1,15 @@
-import os
-import logging
 import ConfigParser
-
 import json
-import requests
+import logging
+import os
+import re
+
 from flask import Flask, render_template, request, Response
 from google.appengine.api import app_identity
 from google.appengine.ext import ndb
+from twilio.rest import Client
 import cloudstorage as gcs
+import requests
 
 ## //\\ App Initialization //\\ ##
 app = Flask(__name__)
@@ -29,9 +31,12 @@ except IOError as ioe:
 
 ## //\\//\\ Twilio Services //\\//\\ ##
 twilio_number = config.get('Twilio', 'number')
-nist_formatted_twilio_number = twilio_number = config.get('Twilio', 'nist_number')
-twilio_number = "+11234567890"
-nist_formatted_twilio_number = "+1 (123) 456-7890"
+nist_formatted_twilio_number = config.get('Twilio', 'nist_number')
+twilio_account_sid = config.get('Twilio', 'account_sid')
+twilio_auth_token = config.get('Twilio', 'auth_token')
+#twilio_number = "+11234567890"
+#nist_formatted_twilio_number = "+1 (123) 456-7890"
+phone_numbers = config.get('Twilio', 'phone_numbers').split(',')
 
 ## //\\//\\//\\ Index //\\//\\///\\ ##
 @app.route('/', methods=['GET'])
@@ -98,16 +103,35 @@ def messages():
 
 @app.route('/sms_message', methods=['POST'])
 def receive_sms(**kwargs):
+    logging.info("sms_message: POST : request.form =  %s", request.form)
     number = request.form.get("From")
     sms_body = request.form.get("Body")
-
+    sms_num_media = request.form.get("NumMedia")
+    if sms_num_media:
+      sms_num_media = int(sms_num_media)
+    media_urls_xml = ""
+    if sms_num_media > 0:
+      media_urls = [request.form.get("MediaUrl" + str(i)) for i in range(sms_num_media)]
+      media_urls_xml = ''.join(["<Media>{}</Media>".format(mu) for mu in media_urls])
+    sc_url = ""
+    if "SC:" in sms_body:
+      links = re.findall(r'SC:\((\S*)\)', sms_body)
+      sc_url = ' '.join(links)
+    if sc_url:
+      client = Client(twilio_account_sid, twilio_auth_token)
+      for ph_num in phone_numbers:
+        logging.info("Sending message to: %s", ph_num)
+        client.messages.create(to=ph_num,
+            from_=twilio_number,
+            body="Check out some jams: {}".format(sc_url),
+            media_url=None)
     message = Message(
         parent=ndb.Key("MessageList", "sms"),
         sender_number=number,
         content=sms_body)
     message.put()
 
-    xml_response = "<Response><Message>Thanks</Message></Response>"
+    xml_response = "<Response><Message><Body>Thanks</Body>%s</Message></Response>" % media_urls_xml
     return Response(xml_response, mimetype="text/xml")
 
 
