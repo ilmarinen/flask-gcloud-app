@@ -30,17 +30,41 @@ except IOError as ioe:
   logging.warn("** There is no access_token; you will not be able to use certain features. **")
 
 ## //\\//\\ Twilio Services //\\//\\ ##
-twilio_number = config.get('Twilio', 'number')
-nist_formatted_twilio_number = config.get('Twilio', 'nist_number')
-twilio_account_sid = config.get('Twilio', 'account_sid')
-twilio_auth_token = config.get('Twilio', 'auth_token')
-#twilio_number = "+11234567890"
-#nist_formatted_twilio_number = "+1 (123) 456-7890"
-phone_numbers = config.get('Twilio', 'phone_numbers').split(',')
+twilio_number = ""
+nist_formatted_twilio_number = ""
+twilio_account_sid = ""
+twilio_auth_token = ""
+phone_numbers = []
+if config.has_section('Twilio'):
+  if config.has_option('Twilio', 'number'):
+    twilio_number = config.get('Twilio', 'number')
+  if config.has_option('Twilio', 'nist_number'):
+    nist_formatted_twilio_number = config.get('Twilio', 'nist_number')
+  if config.has_option('Twilio', 'account_sid'):
+    twilio_account_sid = config.get('Twilio', 'account_sid')
+  if config.has_option('Twilio', 'auth_token'):
+    twilio_auth_token = config.get('Twilio', 'auth_token')
+  if config.has_option('Twilio', 'phone_numbers'):
+    phone_numbers = config.get('Twilio', 'phone_numbers')
+else:
+  logging.warn('** Twilio section is missing from config. Twilio features will not work. **')
+
+## //\\//\\ Slack Services //\\//\\ ##
+slack_bot_api_token = ""
+slack_general_channel_id = ""
+if config.has_section('Slack'):
+  if config.has_option('Slack', 'bot_api_token'):
+    slack_bot_api_token = config.get('Slack', 'bot_api_token')
+  if config.has_option('Slack', 'general_channel_id'):
+    slack_general_channel_id = config.get('Slack', 'general_channel_id')
+else:
+  logging.warn("** There is no Slack config. Slack features will not be usable. **")
+
 
 ## //\\//\\//\\ Index //\\//\\///\\ ##
 @app.route('/', methods=['GET'])
 def index():
+  logging.info('phone numbers: %s', phone_numbers)
   return render_template("index.html", twilio_number=twilio_number, nist_formatted_twilio_number=nist_formatted_twilio_number)
 
 
@@ -115,16 +139,29 @@ def receive_sms(**kwargs):
       media_urls_xml = ''.join(["<Media>{}</Media>".format(mu) for mu in media_urls])
     sc_url = ""
     if "SC:" in sms_body:
-      links = re.findall(r'SC:\((\S*)\)', sms_body)
+      links = re.findall(r'SC:\((\S*)\):CS', sms_body)
       sc_url = ' '.join(links)
     if sc_url:
       client = Client(twilio_account_sid, twilio_auth_token)
       for ph_num in phone_numbers:
-        logging.info("Sending message to: %s", ph_num)
         client.messages.create(to=ph_num,
             from_=twilio_number,
             body="Check out some jams: {}".format(sc_url),
             media_url=None)
+    if sms_body.index('IDEA:') == 0:
+      # post the id in slack channel
+      data = {
+          'channel': slack_general_channel_id,
+          'text': sms_body,
+          'as_user': True
+          }
+      headers = {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + slack_bot_api_token
+          }
+      r = requests.post('https://slack.com/api/chat.postMessage', headers=headers, data=json.dumps(data))
+      logging.info('Slack response status code: %s', r.status_code)
+      logging.info('Slack response: %s', json.dumps(r.json(), indent=4, sort_keys=True))
     message = Message(
         parent=ndb.Key("MessageList", "sms"),
         sender_number=number,

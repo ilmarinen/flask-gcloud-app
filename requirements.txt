@@ -1,4 +1,5 @@
 Flask==0.12.2
 requests==2.3
 GoogleAppEngineCloudStorageClient==1.9.22.1
+slack==0.0.2
 twilio==6.8.4
