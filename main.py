@@ -1,3 +1,4 @@
+## TODO: dpf.2017.11.11 - Move functional pieces out of main.py into own files then modules.
 import ConfigParser
 import json
 import logging
@@ -74,7 +75,6 @@ def html5():
     return render_template("html5.html")
 
 
-## TODO: dpf.2017.11.11 - Move functional pieces out of main.py into own files then modules.
 ## //\\//\\//\\ Messaging and Calling //\\///\\//\\ ##
 class Message(ndb.Model):
     sender_number = ndb.StringProperty()
@@ -113,6 +113,7 @@ def submitted_form():
         message=message)
 
 
+## //\\//\\//\\//\\ Messages //\\//\\///\\//\\ ##
 @app.route('/messages', methods=['GET'])
 def messages():
     message_type = request.args.get("type")
@@ -171,6 +172,80 @@ def receive_sms(**kwargs):
     xml_response = "<Response><Message><Body>Thanks</Body>%s</Message></Response>" % media_urls_xml
     return Response(xml_response, mimetype="text/xml")
 
+
+## //\\//\\//\\//\\ Calls //\\//\\///\\//\\ ##
+@app.route('/calls', methods=['POST'])
+def receive_call(**kwargs):
+  call_sid = request.form.get("CallSid")
+  caller_number = request.form.get("From")
+
+  call_record = CallRecord(
+    parent=ndb.Key("CallList", "twilio"),
+    call_sid=call_sid,
+    caller_number=caller_number)
+  call_record.put()
+
+  xml_response = """
+    <Response>
+      <Say>
+        Please leave a message at the beep.
+        Press the star key when finished.
+      </Say>
+      <Record
+        action="call_thank_you"
+        recordingStatusCallback="receive_recording"
+        method="GET"
+        maxLength="20"
+        finishOnKey="*"
+      />
+      <Say>I did not receive a recording.</Say>
+    </Response>
+  """
+  return Response(xml_response, mimetype="text/xml")
+
+
+@app.route('/calls', methods=['GET'])
+def list_calls(**kwargs):
+  ancestor_key = ndb.Key("CallList", "twilio")
+  call_records = CallRecord.query(ancestor=ancestor_key).order(-CallRecord.date).fetch(20)
+  return render_template("incoming_calls.html", call_records=call_records)
+
+
+@app.route('/receive_recording', methods=['POST'])
+def receive_recording(**kwargs):
+  call_sid = request.form.get("CallSid")
+  recording_url = request.form.get("RecordingUrl")
+  recording_status = request.form.get("RecordingStatus")
+  google_storage_uri = save_to_google_storage(recording_url)
+  transcript = recognize_speech(google_storage_uri)
+  logging.info("Transcript: {}".format(transcript))
+
+  logging.info("Call Status: {}, {}, {}".format(call_sid, recording_url, recording_status))
+
+  ancestor_key = ndb.Key("CallList", "twilio")
+  call_records = CallRecord.query(ancestor=ancestor_key).filter(CallRecord.call_sid == call_sid).fetch(1)
+call_record = call_records.pop()
+
+  call_record.recording_url = recording_url
+  call_record.google_storage_uri = google_storage_uri
+  call_record.recording_status = recording_status
+  call_record.transcript = transcript
+  call_record.put()
+
+  xml_response = "<Response><Say>Thank you.</Say></Response>"
+  return Response(xml_response, mimetype="text/xml")
+
+
+@app.route('/call_thank_you', methods=['GET'])
+def call_thank_you(**kwargs):
+  xml_response = """
+    <Response>
+      <Say>
+        Thank you.
+      </Say>
+    </Response>
+  """
+  return Response(xml_response, mimetype="text/xml")
 
 def save_to_google_storage(http_file_uri):
     local_filename = http_file_uri.split("/").pop()
