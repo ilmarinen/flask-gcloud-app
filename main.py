@@ -1,13 +1,16 @@
-import os
-import logging
+## TODO: dpf.2017.11.11 - Move functional pieces out of main.py into own files then modules.
 import ConfigParser
-
 import json
-import requests
+import logging
+import os
+import re
+
 from flask import Flask, render_template, request, Response
 from google.appengine.api import app_identity
 from google.appengine.ext import ndb
+from twilio.rest import Client
 import cloudstorage as gcs
+import requests
 
 ## //\\ App Initialization //\\ ##
 app = Flask(__name__)
@@ -28,14 +31,41 @@ except IOError as ioe:
   logging.warn("** There is no access_token; you will not be able to use certain features. **")
 
 ## //\\//\\ Twilio Services //\\//\\ ##
-twilio_number = config.get('Twilio', 'number')
-nist_formatted_twilio_number = twilio_number = config.get('Twilio', 'nist_number')
-twilio_number = "+11234567890"
-nist_formatted_twilio_number = "+1 (123) 456-7890"
+twilio_number = ""
+nist_formatted_twilio_number = ""
+twilio_account_sid = ""
+twilio_auth_token = ""
+phone_numbers = []
+if config.has_section('Twilio'):
+  if config.has_option('Twilio', 'number'):
+    twilio_number = config.get('Twilio', 'number')
+  if config.has_option('Twilio', 'nist_number'):
+    nist_formatted_twilio_number = config.get('Twilio', 'nist_number')
+  if config.has_option('Twilio', 'account_sid'):
+    twilio_account_sid = config.get('Twilio', 'account_sid')
+  if config.has_option('Twilio', 'auth_token'):
+    twilio_auth_token = config.get('Twilio', 'auth_token')
+  if config.has_option('Twilio', 'phone_numbers'):
+    phone_numbers = config.get('Twilio', 'phone_numbers')
+else:
+  logging.warn('** Twilio section is missing from config. Twilio features will not work. **')
+
+## //\\//\\ Slack Services //\\//\\ ##
+slack_bot_api_token = ""
+slack_general_channel_id = ""
+if config.has_section('Slack'):
+  if config.has_option('Slack', 'bot_api_token'):
+    slack_bot_api_token = config.get('Slack', 'bot_api_token')
+  if config.has_option('Slack', 'general_channel_id'):
+    slack_general_channel_id = config.get('Slack', 'general_channel_id')
+else:
+  logging.warn("** There is no Slack config. Slack features will not be usable. **")
+
 
 ## //\\//\\//\\ Index //\\//\\///\\ ##
 @app.route('/', methods=['GET'])
 def index():
+  logging.info('phone numbers: %s', phone_numbers)
   return render_template("index.html", twilio_number=twilio_number, nist_formatted_twilio_number=nist_formatted_twilio_number)
 
 
@@ -45,7 +75,6 @@ def html5():
     return render_template("html5.html")
 
 
-## TODO: dpf.2017.11.11 - Move functional pieces out of main.py into own files then modules.
 ## //\\//\\//\\ Messaging and Calling //\\///\\//\\ ##
 class Message(ndb.Model):
     sender_number = ndb.StringProperty()
@@ -84,6 +113,7 @@ def submitted_form():
         message=message)
 
 
+## //\\//\\//\\//\\ Messages //\\//\\///\\//\\ ##
 @app.route('/messages', methods=['GET'])
 def messages():
     message_type = request.args.get("type")
@@ -98,18 +128,124 @@ def messages():
 
 @app.route('/sms_message', methods=['POST'])
 def receive_sms(**kwargs):
+    logging.info("sms_message: POST : request.form =  %s", request.form)
     number = request.form.get("From")
     sms_body = request.form.get("Body")
-
+    sms_num_media = request.form.get("NumMedia")
+    if sms_num_media:
+      sms_num_media = int(sms_num_media)
+    media_urls_xml = ""
+    if sms_num_media > 0:
+      media_urls = [request.form.get("MediaUrl" + str(i)) for i in range(sms_num_media)]
+      media_urls_xml = ''.join(["<Media>{}</Media>".format(mu) for mu in media_urls])
+    sc_url = ""
+    if "SC:" in sms_body:
+      links = re.findall(r'SC:\((\S*)\):CS', sms_body)
+      sc_url = ' '.join(links)
+    if sc_url:
+      client = Client(twilio_account_sid, twilio_auth_token)
+      for ph_num in phone_numbers:
+        client.messages.create(to=ph_num,
+            from_=twilio_number,
+            body="Check out some jams: {}".format(sc_url),
+            media_url=None)
+    if sms_body.index('IDEA:') == 0:
+      # post the id in slack channel
+      data = {
+          'channel': slack_general_channel_id,
+          'text': sms_body,
+          'as_user': True
+          }
+      headers = {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + slack_bot_api_token
+          }
+      r = requests.post('https://slack.com/api/chat.postMessage', headers=headers, data=json.dumps(data))
+      logging.info('Slack response status code: %s', r.status_code)
+      logging.info('Slack response: %s', json.dumps(r.json(), indent=4, sort_keys=True))
     message = Message(
         parent=ndb.Key("MessageList", "sms"),
         sender_number=number,
         content=sms_body)
     message.put()
 
-    xml_response = "<Response><Message>Thanks</Message></Response>"
+    xml_response = "<Response><Message><Body>Thanks</Body>%s</Message></Response>" % media_urls_xml
     return Response(xml_response, mimetype="text/xml")
 
+
+## //\\//\\//\\//\\ Calls //\\//\\///\\//\\ ##
+@app.route('/calls', methods=['POST'])
+def receive_call(**kwargs):
+  call_sid = request.form.get("CallSid")
+  caller_number = request.form.get("From")
+
+  call_record = CallRecord(
+    parent=ndb.Key("CallList", "twilio"),
+    call_sid=call_sid,
+    caller_number=caller_number)
+  call_record.put()
+
+  xml_response = """
+    <Response>
+      <Say>
+        Please leave a message at the beep.
+        Press the star key when finished.
+      </Say>
+      <Record
+        action="call_thank_you"
+        recordingStatusCallback="receive_recording"
+        method="GET"
+        maxLength="20"
+        finishOnKey="*"
+      />
+      <Say>I did not receive a recording.</Say>
+    </Response>
+  """
+  return Response(xml_response, mimetype="text/xml")
+
+
+@app.route('/calls', methods=['GET'])
+def list_calls(**kwargs):
+  ancestor_key = ndb.Key("CallList", "twilio")
+  call_records = CallRecord.query(ancestor=ancestor_key).order(-CallRecord.date).fetch(20)
+  return render_template("incoming_calls.html", call_records=call_records)
+
+
+@app.route('/receive_recording', methods=['POST'])
+def receive_recording(**kwargs):
+  call_sid = request.form.get("CallSid")
+  recording_url = request.form.get("RecordingUrl")
+  recording_status = request.form.get("RecordingStatus")
+  google_storage_uri = save_to_google_storage(recording_url)
+  transcript = recognize_speech(google_storage_uri)
+  logging.info("Transcript: {}".format(transcript))
+
+  logging.info("Call Status: {}, {}, {}".format(call_sid, recording_url, recording_status))
+
+  ancestor_key = ndb.Key("CallList", "twilio")
+  call_records = CallRecord.query(ancestor=ancestor_key).filter(CallRecord.call_sid == call_sid).fetch(1)
+call_record = call_records.pop()
+
+  call_record.recording_url = recording_url
+  call_record.google_storage_uri = google_storage_uri
+  call_record.recording_status = recording_status
+  call_record.transcript = transcript
+  call_record.put()
+
+  xml_response = "<Response><Say>Thank you.</Say></Response>"
+  return Response(xml_response, mimetype="text/xml")
+
+
+@app.route('/call_thank_you', methods=['GET'])
+def call_thank_you(**kwargs):
+  xml_response = """
+    <Response>
+      <Say>
+        Thank you.
+      </Say>
+    </Response>
+  """
+  return Response(xml_response, mimetype="text/xml")
 
 def save_to_google_storage(http_file_uri):
     local_filename = http_file_uri.split("/").pop()
